@@ -90,7 +90,13 @@ class Main implements EditorPlugin {
 							url: video.image,
 							disabled: false,
 							onClick: () => {/*...*/},
-							hoverContent: {"type":"image","url":"video.image"},
+							hoverContent: {
+								"type":"video",
+								"url":video.video_files
+									.filter(el => el.quality == "sd")
+									.sort(el => el.height)[0]
+									.link
+								},
 							info: {
 								"url":"http://prezi.com",
 								"icon":"icon-small-user",
