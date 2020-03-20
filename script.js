@@ -1,14 +1,19 @@
 import { ApplicationApi, ApplicationUI, EditorPlugin, 
 	SidebarUI, UIRoot, MenuItemKind, MenuId, ListProgress,
-	ListItemLayout, ListItemType, ImageArgs } from "prezi_plugin_api";
+	ListItemLayout, ListItemType, DroppableImageArgs, EditorSession } from "prezi_plugin_api";
 
 type VideoThumbnail = {
 
 }
 
+type PexelsUser = {
+	name: string
+}
+
 type UiState = {
 	searchString: string
 	resultList: VideoThumbnail[]
+	progress: ListProgress
 };
 
 type VideoFile = {
@@ -23,14 +28,18 @@ type VideoFile = {
 type Video = {
 	url: string,
 	image: string
+	user: PexelsUser
 	video_files: VideoFile[]
 };
 
 class Main implements EditorPlugin {
+	session: EditorSession
+
 	init(applicationApi: ApplicationApi) {
 		const uiRoot = applicationApi.declareUI<UiState>({
 				searchString: "",
-				resultList: []
+				resultList: [],
+				progress: ListProgress.finished 
 			},
 			(state, ui) => {
 				this.createMenuItem(ui, state, uiRoot);
@@ -61,6 +70,7 @@ class Main implements EditorPlugin {
 			root: {
 				title: "Insert Pexels Video",
 				content: [
+					sidebarUi.label("Videos by Pexel"),
 					this.createSearchField(sidebarUi, state, uiRoot),
 					this.createResultList(sidebarUi, state, uiRoot)
 				]
@@ -77,11 +87,15 @@ class Main implements EditorPlugin {
 			},
 			onSearchButtonClick: (ctx) => {
 				let encodedSearch = state.searchString;
+				uiRoot.setState({ 
+					resultList: [],
+					progress: ListProgress.working
+				});
 				fetch(
 					`https://api.pexels.com/videos/search?query=${encodedSearch}&per_page=15&page=1`,
 					{
 						headers: {
-							Authorization: <API_CODE>
+							Authorization: <API_KEY>
 						}
 					}
 				).then(res => res.json()).then(json => {
@@ -89,7 +103,21 @@ class Main implements EditorPlugin {
 						return {
 							url: video.image,
 							disabled: false,
-							onClick: () => {/*...*/},
+							onDrop: (uat, info) => {
+								return uat.doAsync(fetch(video.video_files[0].link).then( res => res.blob()), (aat, blob) => {
+									if (aat.isValid()){
+										this.session.document.executeApiCommand(aat, {
+											name: "drop",
+											run: pluginEditorApi => {
+												blob.name = `filename.mp4`;
+												const videoAsset = this.session.document.progressiveAssetManager.uploadVideo(blob).token;
+												const parent = this.session.insertTarget.getSimpleObjectParent(pluginEditorApi);
+												const imageEditor = parent.add.video(videoAsset);
+											}
+										});
+									}
+								});
+							},
 							hoverContent: {
 								"type":"video",
 								"url":video.video_files
@@ -100,11 +128,12 @@ class Main implements EditorPlugin {
 							info: {
 								"url":"http://prezi.com",
 								"icon":"icon-small-user",
-								"text":"Luke Skywalker",
-								"tooltip":"By Luke Skywalker"
+								"text":video.user.name,
+								"tooltip":`By ${video.user.name} on pexels`
 							},
 						}
-						})
+						}),
+						progress: ListProgress.finished
 					});
 				})
 			}
@@ -113,12 +142,12 @@ class Main implements EditorPlugin {
 
 	createResultList(sidebarUi: SidebarUI, state: UiState, uiRoot: UIRoot<UiState>) {
 		return sidebarUi.simpleList(itemUi => ({
-			items: state.resultList.map((video:ImageArgs) => itemUi.image(video)),
+			items: state.resultList.map((video:DroppableImageArgs) => itemUi.droppableImage(video)),
 			itemLayout: ListItemLayout.fixed,
 			itemType: ListItemType.large,
 			showTitle: false,
 			flexGrow: 1,
-			progress: ListProgress.finished,
+			progress: state.progress,
 			activeId: null,
 		}))
 	}
